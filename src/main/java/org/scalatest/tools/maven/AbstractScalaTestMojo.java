@@ -2,31 +2,24 @@ package org.scalatest.tools.maven;
 
 import org.apache.maven.artifact.DependencyResolutionRequiredException;
 import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.project.MavenProject;
-import org.codehaus.plexus.util.cli.CommandLineException;
-import org.codehaus.plexus.util.cli.CommandLineTimeOutException;
-import org.codehaus.plexus.util.cli.CommandLineUtils;
-import org.codehaus.plexus.util.cli.Commandline;
-import org.codehaus.plexus.util.cli.StreamConsumer;
+import org.codehaus.plexus.util.cli.*;
 
-import static org.scalatest.tools.maven.MojoUtils.*;
-
-import java.io.*;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.Map;
-
-import static java.util.Collections.singletonList;
-
-import java.net.MalformedURLException;
-import java.net.URLClassLoader;
-import java.net.URL;
+import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.*;
+import java.util.concurrent.*;
+
+import static java.util.Collections.singletonList;
+import static org.scalatest.tools.maven.MojoUtils.*;
 
 /**
  * Provides the base for all mojos.
@@ -35,13 +28,13 @@ import java.lang.reflect.Method;
  * @author Sean Griffin
  * @author Mike Pilquist
  * @author Bill Venners
- *
  * @requiresDependencyResolution test
  */
 abstract class AbstractScalaTestMojo extends AbstractMojo {
     /**
      * Injected by Maven so that forked process can be
      * launched from the working directory of current maven project in a multi-module build.  Should not be user facing.
+     *
      * @parameter default-value="${project}"
      * @required
      * @readonly
@@ -50,7 +43,8 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
 
     /**
      * Injected by Maven so that it can be included in the run path.  Should not be user facing.
-     * @parameter property="project.build.testOutputDirectory"
+     *
+     * @parameter expression="${project.build.testOutputDirectory}"
      * @required
      * @readOnly
      */
@@ -58,7 +52,8 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
 
     /**
      * Injected by Maven so that it can be included in the run path.  Should not be user facing.
-     * @parameter property="project.build.outputDirectory"
+     *
+     * @parameter expression="${project.build.outputDirectory}"
      * @required
      * @readOnly
      */
@@ -68,89 +63,103 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
      * Comma separated list of additional elements to be added
      * to the ScalaTest runpath. <code>${project.build.outputDirectory}</code> and
      * <code>${project.build.testOutputDirectory}</code> are included by default
-     * @parameter property="runpath"
+     *
+     * @parameter expression="${runpath}"
      */
     String runpath;
 
     /**
      * Comma separated list of suites to be executed.
-     * @parameter property="suites"
+     *
+     * @parameter expression="${suites}"
      */
     String suites;
 
     /**
      * Comma separated list of tests to be executed
-     * @parameter property="tests"
+     *
+     * @parameter expression="${tests}"
      */
     String tests;
 
     /**
      * Regex of suffixes to filter discovered suites
-     * @parameter property="suffixes"
+     *
+     * @parameter expression="${suffixes}"
      */
     String suffixes;
 
     /**
      * Comma separated list of tags to include
-     * @parameter property="tagsToInclude"
+     *
+     * @parameter expression="${tagsToInclude}"
      */
     String tagsToInclude;
 
     /**
      * Comma separated list of tags to exclude
-     * @parameter property="tagsToExclude"
+     *
+     * @parameter expression="${tagsToExclude}"
      */
     String tagsToExclude;
 
     /**
      * Comma separated list of configuration parameters to pass to ScalaTest.
      * The parameters must be of the format &lt;key&gt;=&lt;value&gt;. E.g <code>foo=bar,monkey=donkey</code>
-     * @parameter property="config"
+     *
+     * @parameter expression="${config}"
      */
     String config;
 
     /**
      * Set to true to run suites concurrently
-     * @parameter property="parallel"
+     *
+     * @parameter expression="${parallel}"
      */
     boolean parallel;
 
     /**
      * Comma separated list of packages containing suites to execute
-     * @parameter property="membersOnlySuites"
+     *
+     * @parameter expression="${membersOnlySuites}"
      */
     String membersOnlySuites;
 
 // TODO: Change this to wildcard and membersOnly
     /**
      * Comma separated list of wildcard suite names to execute
-     * @parameter property="wildcardSuites"
+     *
+     * @parameter expression="${wildcardSuites}"
      */
     String wildcardSuites;
 
     /**
      * Comma separated list of testNG xml files to execute
-     * @parameter property="testNGXMLFiles"
+     *
+     * @parameter expression="${testNGXMLFiles}"
      */
     String testNGConfigFiles;
 
     /**
      * Comma separated list of files to store names of failed and
      * canceled tests into.
-     * @parameter property="memoryFiles"
+     *
+     * @parameter expression="${memoryFiles}"
      */
     String memoryFiles;
 
     /**
      * Comma separated list of files to store names of failed and
      * canceled tests into.
-     * @parameter property="testsFiles"
+     *
+     * @parameter expression="${testsFiles}"
      */
     String testsFiles;
 
     /**
      * Comma separated list of JUnit suites/tests to execute
-     * @parameter property="junitClasses"
+     *
+     * @parameter expression="${junitClasses}"
      */
     String jUnitClasses;
 
@@ -158,14 +167,21 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
      * Option to specify the forking mode. Can be "never" or "once". "always", which would
      * fork for each test-class, may be supported later.
      *
-     * @parameter property="forkMode" default-value="once"
+     * @parameter expression="${forkMode}" default-value="once"
      */
     String forkMode;
 
     /**
+     * Option to specify the forking thread count. by default
+     *
+     * @parameter expression="${forkThreadCount}" default-value="4"
+     */
+    int forkThreadCount;
+
+    /**
      * Option to specify additional JVM options to pass to the forked process.
      *
-     * @parameter property="argLine"
+     * @parameter expression="${argLine}"
      */
     String argLine;
 
@@ -185,45 +201,45 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
 
     /**
      * Option to specify whether the forked process should wait at startup for a remote debugger to attach.
-     *
+     * <p>
      * <p>If set to <code>true</code>, the forked process will suspend at startup and wait for a remote
      * debugger to attach to the configured port.</p>
      *
-     * @parameter property="debugForkedProcess" default-value="false"
+     * @parameter expression="${debugForkedProcess}" default-value="false"
      */
     boolean debugForkedProcess;
 
     /**
      * JVM options to pass to the forked process when <code>debugForkedProcess</code> is true.
-     *
+     * <p>
      * <p>If set to a non-empty value, the standard debug arguments are replaced by the specified arguments.
      * This allows customization of how remote debugging is done, without having to reconfigure the JVM
      * options in <code>argLine</code>.
      *
-     * @parameter property="debugArgLine"
+     * @parameter expression="${debugArgLine}"
      */
     String debugArgLine;
 
     /**
      * Port to listen on when debugging the forked process.
      *
-     * @parameter property="debuggerPort" default-value="5005"
+     * @parameter expression="${debuggerPort}" default-value="5005"
      */
     int debuggerPort = 5005;
 
     /**
      * Timeout in seconds to allow the forked process to run before killing it and failing the test run.
-     *
+     * <p>
      * <p>If set to 0, process never times out.</p>
      *
-     * @parameter property="timeout" default-value="0"
+     * @parameter expression="${timeout}" default-value="0"
      */
     int forkedProcessTimeoutInSeconds = 0;
 
     /**
      * Whether or not to log the command used to launch the forked process.
      *
-     * @parameter property="logForkedProcessCommand" default-value="false"
+     * @parameter expression="${logForkedProcessCommand}" default-value="false"
      */
     boolean logForkedProcessCommand;
 
@@ -234,18 +250,91 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
      */
     double spanScaleFactor = 1.0;
 
+    ExecutorService service = null;
+
     // runScalaTest is called by the concrete mojo subclasses  TODO: make it protected and others too
     // Returns true if all tests pass
-    boolean runScalaTest(String[] args) throws MojoFailureException {
+    boolean runScalaTest(final String[] args) throws MojoFailureException {
+
+        final String cp = buildClassPathEnvironment();
         getLog().debug(Arrays.toString(args));
         if (forkMode.equals("never")) {
             return runWithoutForking(args);
-        }
-        else {
+        } else if (forkMode.equals("always")) {
+            final Set<String> tests = new HashSet<>();
+            final String testClasses = project.getBasedir() + "/target/test-classes";
+            if (!new File(testClasses).exists()) {
+                return true;
+            }
+            try {
+                Files.walkFileTree(Paths.get(testClasses), new SimpleFileVisitor<Path>() {
+                    @Override
+                    public FileVisitResult visitFile(final Path file, BasicFileAttributes attrs) throws IOException {
+                        if (file.toString().endsWith("Test.class")) {
+                            tests.add(file.toFile().getParent()
+                                    .replaceAll(testClasses + "/", "")
+                                    .replaceAll("/", ".")
+                            );
+                        }
+                        return super.visitFile(file, attrs);
+                    }
+                });
+
+                List<Callable<Boolean>> tasks = new ArrayList<>();
+                for (final String test : tests) {
+                    tasks.add(new Callable<Boolean>() {
+                        @Override
+                        public Boolean call() {
+                            try {
+                                return runForkingPerPackage(args, test, cp);
+                            } catch (MojoFailureException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }
+                    });
+                }
+
+                synchronized (this) {
+                  if (service ==null) {
+                    service = Executors.newFixedThreadPool(forkThreadCount);
+
+                    Runtime.getRuntime().addShutdownHook(new Thread() {
+                        public void run() {
+                          if (!service.isShutdown())
+                            service.shutdownNow();
+                        }
+                      });
+                  }
+                }
+
+                List<Future<Boolean>> futures = service.invokeAll(tasks);
+
+                service.shutdown();
+
+                boolean done = false;
+                while (!done) {
+                    try {
+                        done = service.awaitTermination(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+
+                for (Future<Boolean> future : futures) {
+                    if (!future.get()) {
+                        return false;
+                    }
+                }
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+
+            return true;
+        } else {
             if (!forkMode.equals("once")) {
                 getLog().error("Invalid forkMode: \"" + forkMode + "\"; Using once instead.");
             }
-            return runForkingOnce(args);
+            return runForkingOnce(args, cp);
         }
     }
 
@@ -257,16 +346,25 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
             throw new IllegalStateException(e);
         } catch (InvocationTargetException e) {
             Throwable target = e.getTargetException();
-            if(target instanceof RuntimeException){
-                throw (RuntimeException)target;
+            if (target instanceof RuntimeException) {
+                throw (RuntimeException) target;
             } else {
                 throw new IllegalArgumentException(target);
             }
         }
     }
 
+    private boolean runForkingPerPackage(String[] args, String pkgFQN, String cp) throws MojoFailureException {
+        List<String> argsw = new ArrayList<>();
+        argsw.add("-m");
+        argsw.add(pkgFQN);
+        argsw.addAll(Arrays.asList(args));
+
+        return runForkingOnce(argsw.toArray(new String[0]), cp);
+    }
+
     // Returns true if all tests pass
-    private boolean runForkingOnce(String[] args) throws MojoFailureException {
+    private boolean runForkingOnce(String[] args, String cp) throws MojoFailureException {
 
         final Commandline cli = new Commandline();
         cli.setWorkingDirectory(project.getBasedir());
@@ -274,15 +372,15 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
 
         // Set up environment
         if (environmentVariables != null) {
-            for (final Map.Entry<String, String> entry : environmentVariables.entrySet()) {
+            for (final Map.Entry<String, String> entry : new ArrayList<>(environmentVariables.entrySet())) {
                 cli.addEnvironment(entry.getKey(), entry.getValue());
             }
         }
-        cli.addEnvironment("CLASSPATH", buildClassPathEnvironment());
+        cli.addEnvironment("CLASSPATH", cp);
 
         // Set up system properties
         if (systemProperties != null) {
-            for (final Map.Entry<String, String> entry : systemProperties.entrySet()) {
+            for (final Map.Entry<String, String> entry : new ArrayList<>(systemProperties.entrySet())) {
                 cli.createArg().setValue(String.format("-D%s=%s", entry.getKey(), entry.getValue()));
             }
         }
@@ -306,6 +404,7 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
 
         // Log command string
         final String commandLogStatement = "Forking ScalaTest via: " + cli;
+
         if (logForkedProcessCommand) {
             getLog().info(commandLogStatement);
         } else {
@@ -320,11 +419,9 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
         try {
             final int result = CommandLineUtils.executeCommandLine(cli, streamConsumer, streamConsumer, forkedProcessTimeoutInSeconds);
             return result == 0;
-        }
-        catch (final CommandLineTimeOutException e) {
+        } catch (final CommandLineTimeOutException e) {
             throw new MojoFailureException(String.format("Timed out after %d seconds waiting for forked process to complete.", forkedProcessTimeoutInSeconds));
-        }
-        catch (final CommandLineException e) {
+        } catch (final CommandLineException e) {
             throw new MojoFailureException("Exception while executing forked process.", e);
         }
     }
@@ -335,8 +432,7 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
         for (String e : testClasspathElements()) {
             if (first) {
                 first = false;
-            }
-            else {
+            } else {
                 buf.append(File.pathSeparator);
             }
             buf.append(e);
@@ -413,14 +509,13 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
             addAll(memoryFiles());
             addAll(testsFiles());
             addAll(junitClasses());
-            addAll(spanScaleFactor());
         }};
     }
 
     private List<String> config() {
         List<String> c = new ArrayList<String>();
-        for(String pair : splitOnComma(config)){
-            c.add("-D"+pair);
+        for (String pair : splitOnComma(config)) {
+            c.add("-D" + pair);
         }
         return c;
     }
@@ -457,7 +552,7 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
     private List<String> suites() {
         List<String> list = new ArrayList<String>();
 
-        for (String suite: splitOnComma(suites)) {
+        for (String suite : splitOnComma(suites)) {
             SuiteTestPair pair = new SuiteTestPair(suite);
 
             if (pair.suite != null) {
@@ -492,8 +587,7 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
                     if (splits.length > 1) {
                         suite = splits[0];
                         test = splits[1].trim();
-                    }
-                    else {
+                    } else {
                         suite = trimStr;
                     }
                 }
@@ -517,8 +611,7 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
                         list.add("-t");
                         list.add(atTest);
                     }
-                }
-                else {
+                } else {
                     list.add("-z");
                     list.add(test);
                 }
@@ -533,7 +626,7 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
     private List<String> tests() {
         List<String> list = new ArrayList<String>();
 
-        for (String test: splitOnComma(tests)) {
+        for (String test : splitOnComma(tests)) {
             addTest(list, test);
         }
         return list;
@@ -549,7 +642,7 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
     }
 
     private List<String> suffixes() {
-       return compoundArg("-q", suffixes);
+        return compoundArg("-q", suffixes);
     }
 
     private List<String> membersOnlySuites() {
@@ -561,7 +654,7 @@ abstract class AbstractScalaTestMojo extends AbstractMojo {
     }
 
     private List<String> testNGConfigFiles() {
-        return suiteArg("-b", testNGConfigFiles);
+        return suiteArg("-t", testNGConfigFiles);
     }
 
     private List<String> memoryFiles() {

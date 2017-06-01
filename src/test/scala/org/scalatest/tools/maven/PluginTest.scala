@@ -1,24 +1,20 @@
 package org.scalatest.tools.maven
 
 import java.io.File
-import org.scalatest.Matchers
+import java.util
+
 import org.scalatest.junit.JUnit3Suite
-import java.util.ArrayList
-import org.scalatest.BeforeAndAfterAll
+import org.scalatest.{BeforeAndAfterAll, Matchers}
 
 /**
- * @author Jon -Anders Teigen
- */
-final class PluginTest
-    extends JUnit3Suite
-    with BeforeAndAfterAll
-    with Matchers
-    with PluginMatchers {
+  * @author Jon -Anders Teigen
+  */
+class PluginTest extends JUnit3Suite with Matchers with PluginMatchers with BeforeAndAfterAll {
   val tmpDir = new File(System.getProperty("java.io.tmpdir"))
   val reportsDirectory = new File(tmpDir, "reportsDirectory")
-  val baseDir = new File(tmpDir, "basedir");
-  val testOutputDirectory = new File(reportsDirectory, "testOutputDirectory").getAbsolutePath
-  val outputDirectory = new File(reportsDirectory, "outputDirectory").getAbsolutePath
+  val baseDir = new File(tmpDir, "basedir")
+  val testOutputDirectory: String = new File(reportsDirectory, "testOutputDirectory").getAbsolutePath
+  val outputDirectory: String = new File(reportsDirectory, "outputDirectory").getAbsolutePath
 
   override def afterAll {
     def delete(it: File) {
@@ -30,10 +26,10 @@ final class PluginTest
       }
     }
     delete(reportsDirectory)
-    delete(baseDir);
+    delete(baseDir)
   }
 
-  def jlist(a: String*) = new ArrayList[String]() {for (e <- a) this.add(e)}
+  def jlist(a: String*) = new util.ArrayList[String]() {for (e <- a) this.add(e)}
 
   def comma(a: String*) = a mkString ","
 
@@ -46,76 +42,76 @@ final class PluginTest
     mojo.configuration
   }
 
-  def testDefault {
+  def testDefault(): Unit = {
     val config = configure(_ => ())
     config should contain("-o")
     config should containCompoundArgs("-R", outputDirectory, testOutputDirectory)
-    config should have length (3)
+    config should have length 3
   }
 
-  def testConfigs {
+  def testConfigs(): Unit = {
     val config = configure(_.config = comma("foo=bar", "monkey=donkey"))
     config should contain("-Dfoo=bar")
     config should contain("-Dmonkey=donkey")
   }
 
-  def testRunpath {
+  def testRunpath(): Unit = {
     configure(_.runpath = comma("http://foo.com/my.jar", "/some/where")) should containCompoundArgs("-R", outputDirectory, testOutputDirectory, "http://foo.com/my.jar", "/some/where")
   }
 
-  def testFilereporters {
+  def testFilereporters(): Unit = {
     val config = configure(_.filereports = comma("foo.txt", "YZT some.txt"))
     config should containSlice("-f", new File(reportsDirectory, "foo.txt").getAbsolutePath)
     config should containSlice("-fYZT", new File(reportsDirectory, "some.txt").getAbsolutePath)
   }
 
-  def testHtmlreporters {
+  def testHtmlreporters(): Unit = {
     val config = configure(_.htmlreporters =
       comma("target/htmldir", "target/myhtmldir src/resources/my.css"))
 
     config should containSlice("-h", "target/htmldir")
     config should containSlice("-h", "target/myhtmldir",
-                               "-Y", "src/resources/my.css")
+      "-Y", "src/resources/my.css")
   }
 
-  def testReporters {
+  def testReporters(): Unit = {
     val config = configure(_.reporters = comma("YZT org.my.reporter", "org.your.reporter"))
     config should containSlice("-CYZT", "org.my.reporter")
     config should containSlice("-C", "org.your.reporter")
   }
 
-  def testJUnitXmlReporters {
+  def testJUnitXmlReporters(): Unit = {
     val config = configure(_.junitxml = comma("some/foo.xml", "XYZ other.xml"))
     config should containSlice("-u", new File(reportsDirectory, "some/foo.xml").getAbsolutePath)
     config should containSlice("-uXYZ", new File(reportsDirectory, "other.xml").getAbsolutePath)
   }
 
-  def testStdOutReporter {
+  def testStdOutReporter(): Unit = {
     configure(_.stdout = "GUP") should contain("-oGUP")
   }
 
-  def testStdErrReporter {
+  def testStdErrReporter(): Unit = {
     configure(_.stderr = "BIS") should contain("-eBIS")
   }
 
-  def testIncludes {
+  def testIncludes(): Unit = {
     configure(_.tagsToInclude = comma("a", "b", "c")) should containCompoundArgs("-n", "a", "b", "c")
   }
 
-  def testExcludes {
+  def testExcludes(): Unit = {
     configure(_.tagsToExclude = comma("a", "b", "c")) should containCompoundArgs("-l", "a", "b", "c")
   }
 
-  def testConcurrent {
+  def testConcurrent(): Unit = {
     configure(_.parallel = true) should contain("-P")
-    configure(_.parallel = false) should not contain ("-P")
+    configure(_.parallel = false) should not contain "-P"
   }
 
-  def testSuites {
+  def testSuites(): Unit = {
     val suites: String = comma(" a ",
-                               "b",
-                               "foo @bar baz",
-                               " zowie\n  zip zap ")
+      "b",
+      "foo @bar baz",
+      " zowie\n  zip zap ")
 
     val config = configure(_.suites = suites)
 
@@ -125,19 +121,19 @@ final class PluginTest
     config should containSlice ("-s", "zowie", "-z", "zip zap")
   }
 
-  def testSuitesAndTests {
+  def testSuitesAndTests(): Unit = {
     val suites: String = comma(" a ", "b c")
     val tests:  String = comma(" d ", "@e")
 
     val config = configure(x => {x.suites = suites; x.tests = tests})
 
     config should containSlice ("-z", "d",
-                                "-t", "e",
-                                "-s", "a",
-                                "-s", "b", "-z", "c")
+      "-t", "e",
+      "-s", "a",
+      "-s", "b", "-z", "c")
   }
 
-  def testTests {
+  def testTests(): Unit = {
     val tests: String= comma(" @a ", " b ", "@c")
 
     val config = configure(_.tests = tests)
@@ -151,52 +147,48 @@ final class PluginTest
   // Verify that a comma can be escaped with a backslash in order to
   // support a test name that contains a comma.
   //
-  def testTestsWithCommas {
+  def testTestsWithCommas(): Unit = {
     configure(_.tests = comma("a\\, bc", "b", "c")) should containSuiteArgs("-z", "a, bc", "b", "c")
   }
 
-  def testSuffixes {
+  def testSuffixes(): Unit = {
     configure(_.suffixes = "(?<!Integration)(Test|Spec|Suite)") should containSuiteArgs("-q", "(?<!Integration)(Test|Spec|Suite)")
   }
 
-  def testMembers {
+  def testMembers(): Unit = {
     configure(_.membersOnlySuites = comma("a", "b", "c")) should containSuiteArgs("-m", "a", "b", "c")
   }
 
-  def testWildcards {
+  def testWildcards(): Unit = {
     configure(_.wildcardSuites = comma("a", "b", "c")) should containSuiteArgs("-w", "a", "b", "c")
   }
 
-  def testTestNGs {
-    configure(_.testNGConfigFiles = comma("a", "b", "c")) should containSuiteArgs("-b", "a", "b", "c")
+  def testTestNGs(): Unit = {
+    configure(_.testNGConfigFiles = comma("a", "b", "c")) should containSuiteArgs("-t", "a", "b", "c")
   }
 
-  def testJUnits {
+  def testJUnits(): Unit = {
     configure(_.jUnitClasses = comma("a", "b", "c")) should containSuiteArgs("-j", "a", "b", "c")
   }
 
-  def testMemoryFiles {
+  def testMemoryFiles(): Unit = {
     configure(_.memoryFiles = comma("a", "b", "c")) should containSuiteArgs("-M", "a", "b", "c")
   }
 
-  def testTestsFiles {
+  def testTestsFiles(): Unit = {
     configure(_.testsFiles = comma("nonesuch", "pom.xml", "src")) should containSuiteArgs("-A", "pom.xml", "src")
   }
 
-  def testScaledTimeSpans {
-    configure(_.spanScaleFactor = 2.5) should containSlice("-F", "2.5")
-  }
-
-  def testMojoConcat {
+  def testMojoConcat(): Unit = {
     MojoUtils.concat(jlist("a", "b", "c"), jlist("1", "2", "3")) should be(Array("a", "b", "c", "1", "2", "3"))
   }
 
-  def testMojoSuiteArg {
+  def testMojoSuiteArg(): Unit = {
     MojoUtils.suiteArg("-a", comma("a", "b", "c")) should be(jlist("-a", "a", "-a", "b", "-a", "c"))
     MojoUtils.suiteArg("-a", null) should be(jlist())
   }
 
-  def testMojoCompundArg {
+  def testMojoCompundArg(): Unit = {
     MojoUtils.compoundArg("-a", comma("a", "b", "c")) should be(jlist("-a", "a b c"))
     MojoUtils.compoundArg("-a", null.asInstanceOf[String]) should be(jlist())
   }
